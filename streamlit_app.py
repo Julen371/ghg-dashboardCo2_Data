@@ -1,151 +1,89 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+# --- DATA INLADEN ---
+stations = pd.read_csv("cycle_stations.csv")
+bike = pd.read_csv("bike_rentals.csv")
+weather = pd.read_csv("weather_london.csv")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+st.title("🚲 NS: LondOnderweg!")
+st.markdown("Welkom bij ons mobiliteitsdashboard! Ontdek hoe weer en fietsen samen Londen in beweging houden.")
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+# --- TAB STRUCTUUR ---
+tab1, tab2, tab3 = st.tabs(["📊 Data Exploration", "🗺️ London Maps", "🌦️ Weer & Fietsverhuur"])
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+# =====================
+# TAB 1: Data Exploration
+# =====================
+with tab1:
+    st.header("📈 Fietsverhuur en Weerdata")
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+    st.markdown("Hieronder zie je de ruwe data die we gebruiken voor onze analyses.")
+    st.dataframe(weather.head())
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+    # Selecteer een weerfactor
+    weather_factor = st.selectbox("Kies een weerfactor:", ["tavg", "tmin", "tmax", "prcp"])
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+    # Maak een simpele correlatieplot tussen weer en fietsverhuur (dummy)
+    if weather_factor in weather.columns:
+        # Simuleer aantal verhuurde fietsen (je kunt dit later koppelen aan echte telling)
+        np.random.seed(42)
+        weather["rentals"] = np.random.randint(5000, 55000, size=len(weather))
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+        # Plot regressie
+        fig, ax = plt.subplots()
+        sns.regplot(data=weather, x=weather_factor, y="rentals", scatter_kws={'alpha':0.6}, line_kws={'color':'red'})
+        ax.set_title(f"Regressie: {weather_factor} vs. Fietsverhuur")
+        ax.set_xlabel(weather_factor)
+        ax.set_ylabel("Aantal Fietsverhuringen")
+        st.pyplot(fig)
+    else:
+        st.warning("Weerfactor niet gevonden in de dataset.")
 
-    return gdp_df
+# =====================
+# TAB 2: London Maps
+# =====================
+with tab2:
+    st.header("🗺️ Fietsverhuurstations in Londen")
 
-gdp_df = get_gdp_data()
+    st.markdown("Deze kaart toont de locaties van de fietsverhuurstations, met het aantal beschikbare fietsen per station.")
+    st.write("📋 Kolomnamen in cycle_stations.csv:", list(stations.columns))
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+    # Handmatige mapping van kolommen
+    lat_col = "lat"
+    lon_col = "long"
+    bikes_col = "nbBikes"
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+    # Controle of kolommen bestaan
+    if lat_col in stations.columns and lon_col in stations.columns:
+        st.success(f"✅ Kolommen gevonden → latitude: `{lat_col}`, longitude: `{lon_col}`")
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+        # Toon samenvatting
+        st.metric(label="Gemiddeld aantal fietsen per station", value=round(stations[bikes_col].mean(), 1))
+        st.metric(label="Totaal aantal fietsen", value=int(stations[bikes_col].sum()))
 
-# Add some spacing
-''
-''
+        # Toon kaart
+        st.map(stations[[lat_col, lon_col]].dropna(), zoom=11)
+    else:
+        st.error(f"❌ Kon kolommen niet vinden. Gevonden: lat={lat_col in stations.columns}, lon={lon_col in stations.columns}")
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
+# =====================
+# TAB 3: Weer & Fietsverhuur
+# =====================
+with tab3:
+    st.header("🌦️ Correlatie tussen weer en fietsverhuur")
 
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
+    # Controleer of tavg aanwezig is
+    if "tavg" in weather.columns:
+        st.success("✅ Weerdata succesvol geladen!")
+        st.dataframe(weather[["tavg", "tmin", "tmax", "prcp"]].head())
 
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+        corr = weather.corr(numeric_only=True)
+        fig, ax = plt.subplots()
+        sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
+        st.pyplot(fig)
+    else:
+        st.error("❌ Kon geen 'tavg' kolom vinden in weather_london.csv.")
